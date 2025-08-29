@@ -1,9 +1,30 @@
 
+# --- Hugging Face Spaces hardening: cache/config to /tmp to avoid permission issues ---
+import os, pathlib
+for var, sub in {
+    "MPLCONFIGDIR": "matplotlib",
+    "XDG_CACHE_HOME": "xdg",
+    "HF_HOME": "hf",
+    "PIP_CACHE_DIR": "pip",
+    "HUGGINGFACE_HUB_CACHE": "hfhub",
+    "NUMBA_CACHE_DIR": "numba",
+}.items():
+    try:
+        d = pathlib.Path("/tmp")/sub
+        d.mkdir(parents=True, exist_ok=True)
+        os.environ[var] = str(d)
+    except Exception:
+        pass
+
+# Streamlit specific stability tweaks
+os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "poll")
+os.environ.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
+\n
 import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime, date
-import plotly.express as px
+try:\n    import plotly.express as px\nexcept Exception as e:\n    raise ImportError('Plotly is required. Add `plotly>=5.20` to requirements.txt in your Space. Original error: %s' % e)
 from contextlib import contextmanager
 
 # ============ App Config ============
