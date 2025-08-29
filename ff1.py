@@ -5,10 +5,26 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime, date
-import plotly.express as px
 from contextlib import contextmanager
 import threading
 from pathlib import Path
+
+# Safe plotly import with fallback
+PLOTLY_AVAILABLE = False
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    st.error("⚠️ Plotly is required for charts. Please add 'plotly>=5.17.0' to your requirements.txt file.")
+    st.info("The app will continue to work, but charts will not be available.")
+    # Create dummy px object to prevent errors
+    class DummyPlotly:
+        def bar(self, *args, **kwargs):
+            return None
+        def pie(self, *args, **kwargs): 
+            return None
+    px = DummyPlotly()
 
 # Environment setup for cloud deployment
 for var, sub in {
@@ -263,10 +279,21 @@ def kpi_card(label, value):
 
 def safe_plotly_chart(fig, **kwargs):
     """Safely display plotly chart with error handling"""
+    if not PLOTLY_AVAILABLE or fig is None:
+        st.warning("📊 Charts are not available. Please install plotly: `pip install plotly>=5.17.0`")
+        return
     try:
         st.plotly_chart(fig, **kwargs)
     except Exception as e:
         st.error(f"Error displaying chart: {e}")
+
+def create_fallback_chart(data, chart_type="table"):
+    """Create fallback visualization when plotly is not available"""
+    if chart_type == "table":
+        st.dataframe(data, use_container_width=True)
+    elif chart_type == "metrics" and not data.empty:
+        for _, row in data.head(5).iterrows():
+            st.metric(str(row.iloc[0]), f"${row.iloc[1]:,.2f}" if len(row) > 1 else str(row.iloc[1]))
 
 # ============ App Initialization ============
 # Initialize database
@@ -419,24 +446,29 @@ with tabs[1]:
     if roll.empty:
         st.info("📈 No data available for the selected period. Add some transactions to see trends!")
     else:
-        try:
-            fig1 = px.bar(
-                roll, 
-                x="month", 
-                y="amount", 
-                color="ttype",
-                barmode="group",
-                title="Monthly Income vs Expenses",
-                color_discrete_map={"Income": "#2E8B57", "Expense": "#DC143C"}
-            )
-            fig1.update_layout(
-                margin=dict(l=10, r=10, t=40, b=10), 
-                xaxis_title="Month", 
-                yaxis_title="Amount ($)"
-            )
-            safe_plotly_chart(fig1, use_container_width=True, theme="streamlit")
-        except Exception as e:
-            st.error(f"Could not display monthly trends: {e}")
+        if PLOTLY_AVAILABLE:
+            try:
+                fig1 = px.bar(
+                    roll, 
+                    x="month", 
+                    y="amount", 
+                    color="ttype",
+                    barmode="group",
+                    title="Monthly Income vs Expenses",
+                    color_discrete_map={"Income": "#2E8B57", "Expense": "#DC143C"}
+                )
+                fig1.update_layout(
+                    margin=dict(l=10, r=10, t=40, b=10), 
+                    xaxis_title="Month", 
+                    yaxis_title="Amount ($)"
+                )
+                safe_plotly_chart(fig1, use_container_width=True, theme="streamlit")
+            except Exception as e:
+                st.error(f"Could not display monthly trends: {e}")
+                create_fallback_chart(roll, "table")
+        else:
+            st.subheader("Monthly Trends (Table View)")
+            create_fallback_chart(roll, "table")
 
     # Category Breakdowns
     col_c1, col_c2 = st.columns(2)
@@ -451,14 +483,17 @@ with tabs[1]:
                 if cat_roll.empty:
                     st.info("No expenses recorded this month.")
                 else:
-                    fig2 = px.pie(
-                        cat_roll, 
-                        names="category", 
-                        values="amount", 
-                        title="Expense Categories This Month"
-                    )
-                    fig2.update_layout(margin=dict(l=10, r=10, t=40, b=10))
-                    safe_plotly_chart(fig2, use_container_width=True, theme="streamlit")
+                    if PLOTLY_AVAILABLE:
+                        fig2 = px.pie(
+                            cat_roll, 
+                            names="category", 
+                            values="amount", 
+                            title="Expense Categories This Month"
+                        )
+                        fig2.update_layout(margin=dict(l=10, r=10, t=40, b=10))
+                        safe_plotly_chart(fig2, use_container_width=True, theme="streamlit")
+                    else:
+                        create_fallback_chart(cat_roll, "table")
             except Exception as e:
                 st.error(f"Could not display category breakdown: {e}")
         else:
@@ -471,22 +506,26 @@ with tabs[1]:
         if top_cat.empty:
             st.info("No expense data to display.")
         else:
-            try:
-                fig3 = px.bar(
-                    top_cat.head(10), 
-                    x="amount", 
-                    y="category", 
-                    orientation="h",
-                    title="Top 10 Expense Categories"
-                )
-                fig3.update_layout(
-                    margin=dict(l=10, r=10, t=40, b=10), 
-                    xaxis_title="Amount ($)", 
-                    yaxis_title=None
-                )
-                safe_plotly_chart(fig3, use_container_width=True, theme="streamlit")
-            except Exception as e:
-                st.error(f"Could not display top categories: {e}")
+            if PLOTLY_AVAILABLE:
+                try:
+                    fig3 = px.bar(
+                        top_cat.head(10), 
+                        x="amount", 
+                        y="category", 
+                        orientation="h",
+                        title="Top 10 Expense Categories"
+                    )
+                    fig3.update_layout(
+                        margin=dict(l=10, r=10, t=40, b=10), 
+                        xaxis_title="Amount ($)", 
+                        yaxis_title=None
+                    )
+                    safe_plotly_chart(fig3, use_container_width=True, theme="streamlit")
+                except Exception as e:
+                    st.error(f"Could not display top categories: {e}")
+                    create_fallback_chart(top_cat.head(10), "table")
+            else:
+                create_fallback_chart(top_cat.head(10), "table")
 
 # ---- Transactions Tab ----
 with tabs[2]:
